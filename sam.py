@@ -49,20 +49,20 @@ def send_welcome(message):
 
     # Create buttons
     btn1 = KeyboardButton("Instant Plan 🧡")
-    btn2 = KeyboardButton("Instant++ Plan 💥")
+    btn2 = KeyboardButton("Vip Plan 💥")
     btn3 = KeyboardButton("Canary Download✔️")
     btn4 = KeyboardButton("My Account🏦")
     btn5 = KeyboardButton("Help❓")
     btn6 = KeyboardButton("Contact admin✔️")
 
     # Add buttons to the markup
-    markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
+    markup.add(btn2)
 
     # Send message with buttons
     send_message_with_retry(message.chat.id, "*Choose an option:*", reply_markup=markup, parse_mode='Markdown')
 
 # Function to handle Instant++ Plan button press
-@bot.message_handler(func=lambda message: message.text == "Instant++ Plan 💥")
+@bot.message_handler(func=lambda message: message.text == "Vip Plan 💥")
 def handle_instant_plus_plan(message):
     # Prompt user for target IP, port, and duration
     bot.send_message(message.chat.id, "*Please provide the target IP, port, and duration (in seconds) separated by spaces.*", parse_mode='Markdown')
